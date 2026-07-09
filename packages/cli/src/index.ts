@@ -33,11 +33,11 @@ program
                 message,
             });
 
-            console.log('Sent Telegram message to chat ${result.chatId}.')
-            console.log('Telegram message ID: ${result.messageId}'); 
-        } catch {
+            console.log(`Sent Telegram message to chat ${result.chatId}.`)
+            console.log(`Telegram message ID: ${result.messageId}`);
+        } catch (error) {
             const detail = error instanceof Error ? error.message : String(error);
-            console.error('Telegram API requrest failed: ${detail}');
+            console.error(`Telegram API request failed: ${detail}`);
             process.exit(1);
         }
     });

@@ -2,10 +2,11 @@
     "name": "sendkit-workspace",
     "private": true,
     "type": "module",
-    "workspaces": ["packages/*", "packages/cli/*"],
+    "workspaces": ["packages/*", "packages/cli/*", "apps/*"],
     "scripts": {
         "dev:cli": "bun run packages/cli/src/index.ts",
-        "dev:local-mcp": "bun run packages/cli/local-mcp/src/index.ts"
+        "dev:local-mcp": "bun run packages/local-mcp/src/index.ts",
+        "dev:remote-mcp": "bun run apps/remote-mcp/src/index.ts"
     },
     "devDependencies": {
         "@types/node": "^26.1.0"
