@@ -43,5 +43,3 @@ program
     });
     
 program.parse(process.argv);
-
-// https://api.telegram.org/bot8827420401:AAFdnBa4JcJO0eP_o5zuyvg0zKgfd1W9JzI/getUpdates
