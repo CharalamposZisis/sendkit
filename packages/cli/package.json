@@ -1,11 +1,11 @@
 {
-    "name": "sendkit-workspace",
+    "name": "sendkit-cli",
     "version": "0.0.0",
     "private": true,
     "type": "module",
-    "workspaces": ["packages/*"],
     "dependencies": {
-        "commander": "^15.0.0"
+        "commander": "^15.0.0",
+        "sendkit-core": "workspace:*"
     },
     "devDependencies": {
         "@types/node": "^26.1.0"
