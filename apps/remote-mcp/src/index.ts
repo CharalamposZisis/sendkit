@@ -1,21 +1,12 @@
-import { Hono } from "hono";
+import { Hono, type Context } from "hono";
 import { randomUUID, createHash } from "node:crypto";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { WebStandardStreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js";
 import { sendTelegramMessage, telegramMessageInputSchema } from "sendkit-core";
-
-function getTelegramBotToken() {
-  const token = process.env.TELEGRAM_BOT_TOKEN;
-
-  if (!token) {
-    throw new Error("TELEGRAM_BOT_TOKEN is required. Configure it in the server environment.");
-  }
-
-  return token;
-}
+import { generateProtectedResourceMetadata } from "@clerk/mcp-tools/server";
 
 // create MCP server
-function createServer() {
+function createServer(botToken: string) {
   const server = new McpServer({
     name: "sendkit-remote",
     version: "0.0.0",
@@ -31,7 +22,7 @@ function createServer() {
     async (input) => {
       const result = await sendTelegramMessage({
         ...input,
-        botToken: getTelegramBotToken(),
+        botToken,
       });
 
       return {
@@ -51,6 +42,37 @@ function createServer() {
 
 const app = new Hono();
 
+function originOf(c: { req: { url: string; header: (name: string) => string | undefined } }) {
+  const forwardedProto = c.req.header("x-forwarded-proto");
+  const forwardedHost = c.req.header("x-forwarded-host");
+
+  if (forwardedProto && forwardedHost) {
+    return `${forwardedProto.split(",")[0].trim()}://${forwardedHost.split(",")[0].trim()}`;
+  }
+
+  return new URL(c.req.url).origin;
+}
+
+function protectedResourceMetadataUrl(c: Context, botToken: string) {
+  return new URL(`/.well-known/oauth-protected-resource/${botToken}/mcp`, c.req.url).toString();
+}
+app.get("/.well-known/oauth-protected-resource/:botToken/mcp", (c) => {
+  return c.json(
+    generateProtectedResourceMetadata({
+      authServerUrl: originOf(c),
+      resourceUrl: new URL(`/${c.req.param("botToken")}/mcp`, c.req.url).toString(),
+    }),
+  );
+});
+
+function unauthorizedMcpResponse(c: Context, botToken: string) {
+  c.header(
+    "WWW-Authenticate",
+    `Bearer resource_metadata="${protectedResourceMetadataUrl(c, botToken)}"`,
+  );
+  return c.json({ error: "Unauthorized" }, 401);
+}
+
 // --- Minimal single-user OAuth 2.1 authorization server (RFC 8414 metadata + RFC 7591 ---
 // --- dynamic client registration + PKCE), so remote MCP connectors can register.      ---
 // --- Auto-approves every authorization request since this server has exactly one user. ---
@@ -62,17 +84,6 @@ type AccessToken = { clientId: string; expiresAt: number };
 const clients = new Map<string, Client>();
 const authCodes = new Map<string, AuthCode>();
 const accessTokens = new Map<string, AccessToken>();
-
-function originOf(c: { req: { url: string; header: (name: string) => string | undefined } }) {
-  const forwardedProto = c.req.header("x-forwarded-proto");
-  const forwardedHost = c.req.header("x-forwarded-host");
-
-  if (forwardedProto && forwardedHost) {
-    return `${forwardedProto.split(",")[0].trim()}://${forwardedHost.split(",")[0].trim()}`;
-  }
-
-  return new URL(c.req.url).origin;
-}
 
 app.get("/.well-known/oauth-authorization-server", (c) => {
   const origin = originOf(c);
@@ -170,17 +181,17 @@ app.post("/token", async (c) => {
 
 // --- MCP endpoint, protected by the access token issued above ---
 
-app.post("/mcp", async (c) => {
+app.post("/:botToken/mcp", async (c) => {
+  const botToken = c.req.param("botToken");
   const authHeader = c.req.header("authorization") ?? "";
   const token = authHeader.startsWith("Bearer ") ? authHeader.slice("Bearer ".length) : "";
   const grant = token ? accessTokens.get(token) : undefined;
 
   if (!grant || grant.expiresAt < Date.now()) {
-    c.header("WWW-Authenticate", `Bearer resource_metadata="${originOf(c)}/.well-known/oauth-authorization-server"`);
-    return c.json({ error: "Missing or invalid access token" }, 401);
+    return unauthorizedMcpResponse(c, botToken);
   }
 
-  const server = createServer();
+  const server = createServer(botToken);
 
   const transport = new WebStandardStreamableHTTPServerTransport({
     sessionIdGenerator: undefined,
@@ -202,5 +213,11 @@ const port = Number(process.env.PORT ?? 3000);
 
 export default {
   port,
-  fetch: app.fetch,
+  fetch: (req: Request) => {
+    const url = new URL(req.url);
+    url.protocol = req.headers.get("x-forwarded-proto") ?? url.protocol;
+    url.host = req.headers.get("x-forwarded-host") ?? url.host;
+
+    return app.fetch(new Request(url, req));
+  },
 };
